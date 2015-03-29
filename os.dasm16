@@ -17,8 +17,8 @@
 
 :os_boot
   set a, msg_boot
-  set b, 0
-  jsr printstr
+  set [inputline], 0
+  jsr println
 
   set a, 1
   jsr cls
@@ -26,64 +26,28 @@
   jsr programsearch
 
   set a, msg_ok
-  set b, 32
-  jsr printstr
-
-  set [inputline], 2
+  jsr println
 
 :os_loop
   jsr input
 
   set a, inputstr
 
-  set b, msg_cmd_help
+  set b, programs
+:programfind_loop
   jsr strcmp
   ife c, 1
-    set pc, cmd_help
-
-  set b, msg_cmd_list
-  jsr strcmp
-  ife c, 1
-    set pc, cmd_list
-
-  set PC, os_loop
-
-:cmd_list
-  set i, programs
-  set a, programsearch_num
-  set b, tmp
-  add b, 1
-  jsr strcpy
-  set a, tmp
-  jsr println
-  set PC, cmd_list_loop
-:tmp
-  dat 0x170, "        ", 0
-:cmd_list_loop
-  add i, 7
-  ifn [i], 0
-    set PC, cmd_list_found
-  add i, 1
-  ifg i, programsnamed
-    set PC, cmd_list_done
-  set PC, cmd_list_loop
-:cmd_list_found
-  sub i, 7
-  set a, i
-  set b, cmd_list_format
-  add b, 1
-  jsr strcpy
-  set a, cmd_list_format
-  jsr println
-  add i, 8
-  set PC, cmd_list_loop
-:cmd_list_done
-  set PC, os_loop
-:cmd_list_format
-  dat 0x170, "      ", 0
-
-:cmd_help
-  set a, msg_help
+    set PC, programfind_found
+  add b, 9
+  ifg b, programsnamed
+    set PC, programfind_none
+  sub b, 1
+  set PC, programfind_loop
+:programfind_found
+  add b, 7
+  set PC, [b]
+:programfind_none
+  set a, msg_noprogram
   jsr println
   set PC, os_loop
 
@@ -94,6 +58,46 @@
 ; ===============
 ; = SUBROUTINES =
 ; ===============
+
+; newline
+; adds a new line to the terminal,
+; shifting text if needed.
+:newline
+  set push, a
+  set push, b
+  set push, i
+  set push, j
+  add [inputline], 1
+  ifg [inputline], 15
+    set PC, newline_shift
+:newline_done
+  set j, pop
+  set i, pop
+  set b, pop
+  set a, pop
+  set PC, pop
+:newline_shift
+  sub [inputline], 1
+  set a, msg_line
+  set b, 0
+  jsr printstr
+  set i, 32
+  set j, 0
+:newline_shift_rowsave_loop
+  set [0x8000+j], [0x8000+i]
+  add i, 1
+  add j, 1
+  ifg j, 511
+    set PC, newline_shift_done
+  set PC, newline_shift_rowsave_loop
+:newline_shift_done
+  set a, msg_line
+  set b, 480
+  jsr printstr
+  set PC, newline_done
+:newline_row
+  dat "                                ", 0, 0
+
 
 ; strcpy
 ; string copy
@@ -131,7 +135,7 @@
   set a, pop
   jsr printstr
   set b, pop
-  add [inputline], 1
+  jsr newline
   set PC, pop
 
 ; programsearch
@@ -168,11 +172,8 @@
   set a, pop
   ; store the program location
   add i, 6
-  set push, a
-  set a, i
   add j, 7
-  set [programs+j], a
-  set a, pop
+  set [programs+j], i
   add [programsearch_num], 1
   set PC, programsearch_loop
 :programsearch_done
@@ -181,9 +182,7 @@
   set PC, pop
 ; stores the number of programs found
 :programsearch_num
-  dat 0
-:tmp2
-  dat 0
+  dat 0, 0
 
 ; strcmp
 ; string compare
@@ -278,6 +277,8 @@
   set b, pop
   set PC, input_loop
 :input_backspace
+  ifg 1, [inputstrptr]
+    set PC, input_loop
   sub [inputstrptr], 1
   set push, a
   set a, [inputstrptr]
@@ -293,23 +294,20 @@
   set a, pop
   set PC, input_loop
 :input_max
-  ; newline for text
-  add [inputline], 1
   ; text
+  jsr newline
   set a, msg_maxline
-  set b, [inputpos]
-  add b, 1
-  jsr printstr
+  jsr println
   set PC, input_done
 :input_done
   ; 0-terminate [inputstr]
   set a, [inputstrptr]
   set [inputstr+a], 0
-  ; newline
-  add [inputline], 1
   ; erase the blinking space
   set a, [inputpos]
   set [0x8000+a], 0
+  ; newline
+  jsr newline
   set i, pop
   set c, pop
   set b, pop
@@ -352,7 +350,7 @@
 ; set a, msg
 ; set b, 0
 ; JSR printstr
-; :msg dat "message", 0
+; :msg dat 0x170, "message", 0
 :printstr
   set push, a
   set push, b
@@ -418,20 +416,13 @@
   dat 0xe70, "_", 0
 :msg_maxline
   dat 0x170, "Input cannot exceed 1 line", 0
-:msg_help
-  dat 0x170, "Commands: help, list, run", 0
+:msg_noprogram
+  dat 0x170, "Unknown program", 0
 :msg_ok
   dat 0x170, "OK", 0
 ; used for input
 :msg_space
   dat " ", 0
-
-:msg_cmd_help
-  dat "help", 0
-:msg_cmd_run
-  dat "run", 0
-:msg_cmd_list
-  dat "list", 0
 
 ; programs
 ; 16 possible programs
@@ -492,15 +483,115 @@
   ; and must have padded 0s to make it 6 letters
   dat "echo", 0, 0 ; program name
 
+  set a, prog_echo_msg
+  jsr println
+
   jsr input
   set a, inputstr
   jsr println
 
+  ; return to OS
+  set PC, os_loop
+
   ; any program data MUST be after the
   ; first instruction in the program
 
+:prog_echo_msg
+  dat 0x170, "Text to echo:", 0
+
+:prog_help
+  dat 0xffab, 0xcdff ; identifier
+  ; program name must be no more than 6 letters
+  ; and must have padded 0s to make it 6 letters
+  dat "help", 0, 0 ; program name
+
+  set a, prog_help_msg
+  jsr println
+
   ; return to OS
   set PC, os_loop
+
+  ; any program data MUST be after the
+  ; first instruction in the program
+
+:prog_help_msg
+  dat 0x170, "Type 'list' to list programs", 0
+
+
+
+:prog_list
+  dat 0xffab, 0xcdff ; identifier
+  ; program name must be no more than 6 letters
+  ; and must have padded 0s to make it 6 letters
+  dat "list", 0, 0 ; program name
+
+  set a, prog_list_msg
+  jsr println
+
+  set i, programs
+:prog_list_loop
+  add i, 7
+  ifn [i], 0
+    set PC, prog_list_found
+  add i, 3 ; this is 3 for the purpose of no glitches
+  ifg i, programsnamed
+    set PC, prog_list_done
+  sub i, 2 ; then back as if add i, 1 and no sub
+  set PC, prog_list_loop
+:prog_list_found
+  sub i, 7
+  set a, i
+  set b, prog_list_format
+  add b, 1
+  jsr strcpy
+  set a, prog_list_format
+  jsr println
+  add i, 8
+  set PC, prog_list_loop
+:prog_list_done
+  set PC, os_loop
+:prog_list_format
+  dat 0x170, "      ", 0
+
+  ; return to OS
+  set PC, os_loop
+
+  ; any program data MUST be after the
+  ; first instruction in the program
+
+:prog_list_msg
+  dat 0x170, "Programs:", 0
+
+:prog_exit
+  dat 0xffab, 0xcdff ; identifier
+  ; program name must be no more than 6 letters
+  ; and must have padded 0s to make it 6 letters
+  dat "exit", 0, 0 ; program name
+
+  set a, prog_exit_msg1
+  jsr println
+  set a, prog_exit_msg2
+  jsr println
+
+  jsr input
+  set a, inputstr
+  set b, prog_exit_yesmsg
+  jsr strcmp
+  ife c, 1
+    set PC, hang
+
+  ; return to OS
+  set PC, os_loop
+
+  ; any program data MUST be after the
+  ; first instruction in the program
+
+:prog_exit_msg1
+  dat 0x170, "This will halt the CPU!", 0
+:prog_exit_msg2
+  dat 0x170, "Enter YES to confirm.", 0
+:prog_exit_yesmsg
+  dat "YES", 0
 
 :endprogs
   dat 0
