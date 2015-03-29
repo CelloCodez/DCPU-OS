@@ -1,0 +1,492 @@
+; Operating System for the DCPU-16 (v1.1 specs I think)
+; Meant for ease of use and development.
+
+:os_boot
+  set a, msg_boot
+  set b, 0
+  jsr printstr
+
+  set a, 1
+  jsr cls
+
+  jsr programsearch
+
+  set a, msg_ok
+  set b, 32
+  jsr printstr
+
+  set [inputline], 2
+
+:os_loop
+  jsr input
+
+  set a, inputstr
+
+  set b, msg_cmd_help
+  jsr strcmp
+  ife c, 1
+    set pc, cmd_help
+
+  set b, msg_cmd_list
+  jsr strcmp
+  ife c, 1
+    set pc, cmd_list
+
+  set PC, os_loop
+
+:cmd_list
+  set i, programs
+  set a, programsearch_num
+  set b, tmp
+  add b, 1
+  jsr strcpy
+  set a, tmp
+  jsr println
+  set PC, cmd_list_loop
+:tmp
+  dat 0x170, "        ", 0
+:cmd_list_loop
+  add i, 7
+  ifn [i], 0
+    set PC, cmd_list_found
+  add i, 1
+  ifg i, programsnamed
+    set PC, cmd_list_done
+  set PC, cmd_list_loop
+:cmd_list_found
+  sub i, 7
+  set a, i
+  set b, cmd_list_format
+  add b, 1
+  jsr strcpy
+  set a, cmd_list_format
+  jsr println
+  add i, 8
+  set PC, cmd_list_loop
+:cmd_list_done
+  set PC, os_loop
+:cmd_list_format
+  dat 0x170, "      ", 0
+
+:cmd_help
+  set a, msg_help
+  jsr println
+  set PC, os_loop
+
+; hang function
+:hang
+  set PC, hang
+
+; ===============
+; = SUBROUTINES =
+; ===============
+
+; strcpy
+; string copy
+; copies 0-terminated string starting at [A]
+; into memory starting at [B]
+; how to use:
+; set a, msg
+; set b, copiedmsg
+; jsr strcpy
+:strcpy
+  set push, a
+  set push, b
+:strcpy_loop
+  set [b], [a]
+  ife [a], 0
+    set PC, strcpy_done
+  add a, 1
+  add b, 1
+  set PC, strcpy_loop
+:strcpy_done
+  set b, pop
+  set a, pop
+  set PC, pop
+
+; println
+; same as printstr but increases [inputline]
+; how to use:
+; set a, msg
+; jsr println
+:println
+  set push, b
+  set push, a
+  set a, [inputline]
+  jsr screenline
+  set a, pop
+  jsr printstr
+  set b, pop
+  add [inputline], 1
+  set PC, pop
+
+; programsearch
+; searches for programs and stores them in memory
+:programsearch
+  set push, i
+  set push, j
+  set i, progs
+  set [programsearch_num], 0
+:programsearch_loop
+  ifg i, endprogs
+    set PC, programsearch_done
+  ife [i], 0xffab
+    set PC, programsearch_partial
+  add i, 1
+  set PC, programsearch_loop
+:programsearch_partial
+  add i, 1
+  ife [i], 0xcdff
+    set PC, programsearch_found
+  set PC, programsearch_loop
+:programsearch_found
+  set j, [programsearch_num]
+  mul j, 8 ; 8 is the program id length
+  ; store the program name
+  add i, 1
+  set push, a
+  set push, b
+  set a, i
+  set b, j
+  add b, programs
+  jsr strcpy
+  set b, pop
+  set a, pop
+  ; store the program location
+  add i, 6
+  set push, a
+  set a, i
+  add j, 7
+  set [programs+j], a
+  set a, pop
+  add [programsearch_num], 1
+  set PC, programsearch_loop
+:programsearch_done
+  set j, pop
+  set i, pop
+  set PC, pop
+; stores the number of programs found
+:programsearch_num
+  dat 0
+:tmp2
+  dat 0
+
+; strcmp
+; string compare
+; if the strings given are the same,
+; then c will be set to 1. else, c is 0.
+; how to use:
+; set a, str1
+; set b, str2
+; jsr strcmp
+:strcmp
+  set c, 1
+  set push, a
+  set push, b
+:strcmp_loop
+  ifn [a], [b]
+    set PC, strcmp_different
+  ife [a], 0
+    set PC, strcmp_adone
+  ; this shouldn't be reached if they are the same
+  ife [b], 0
+    set PC, strcmp_different
+  add a, 1
+  add b, 1
+  set PC, strcmp_loop
+:strcmp_adone
+  ife [b], 0
+    set PC, strcmp_done
+  ; if equal, goes on to strcmp_different
+:strcmp_different
+  set c, 0
+  ; goes on to finish
+:strcmp_done
+  set b, pop
+  set a, pop
+  set PC, pop
+
+; input
+; prompts the user for input
+; ends when enter is pressed or if they
+; go past the line
+; input string starts at [inputstr]
+; ends at [inputstr+inputstrptr] but inputstrptr
+; has to be passed into a register to be added
+; like that with this assembler.
+:input
+  set push, a
+  set push, b
+  set push, c
+  set push, i
+  ; reset inputstr and inputstrptr
+  set [inputstrptr], 0
+  set i, 0
+  :input_reset_loop
+    set [inputstr+i], 0
+    add i, 1
+    ifg 30, i
+      set PC, input_reset_loop
+  ; put prompt
+  set a, [inputline]
+  jsr screenline
+  set a, msg_prompt
+  jsr printstr
+  ; put blinking cursor
+  set a, msg_blink
+  add b, 2
+  jsr printstr
+  ; init cursor position
+  set [inputpos], b
+:input_loop
+  ife [0x9000],0
+    set PC, input_loop
+  set b, [0x9000]
+  set [0x9000], 0
+  ife b, 8
+    set PC, input_backspace
+  ife b, 10
+    set PC, input_done
+  set i, [inputstrptr]
+  set [inputstr+i], b
+  add [inputstrptr], 1
+  bor b, 0xF000
+  set c, [inputpos]
+  set [0x8000+c], b
+  add [inputpos], 1
+  ifg [inputstrptr], 29
+    set pc, input_max
+  set push, b
+  set b, c
+  add b, 1
+  set a, msg_blink
+  jsr printstr
+  set b, pop
+  set PC, input_loop
+:input_backspace
+  sub [inputstrptr], 1
+  set push, a
+  set a, [inputstrptr]
+  set [inputstr+a], 0
+  sub [inputpos], 1
+  set a, [inputpos]
+  set [0x8001+a], 0
+  set push, b
+  set b, a
+  set a, msg_blink
+  jsr printstr
+  set b, pop
+  set a, pop
+  set PC, input_loop
+:input_max
+  ; newline for text
+  add [inputline], 1
+  ; text
+  set a, msg_maxline
+  set b, [inputpos]
+  add b, 1
+  jsr printstr
+  set PC, input_done
+:input_done
+  ; 0-terminate [inputstr]
+  set a, [inputstrptr]
+  set [inputstr+a], 0
+  ; newline
+  add [inputline], 1
+  ; erase the blinking space
+  set a, [inputpos]
+  set [0x8000+a], 0
+  set i, pop
+  set c, pop
+  set b, pop
+  set a, pop
+  set PC, pop
+
+; cls
+; clears the screen, starting after line A (A=0 clears everything)
+; how to use:
+; SET A, 1 ; clear after the first line
+;
+:cls
+  set push, a
+  set push, b
+  jsr screenline
+:cls_loop
+  set [0x8000+b], 0
+  add b, 1
+  ifg b, 511
+    set PC, cls_done
+  set PC, cls_loop
+:cls_done
+  set b, pop
+  set a, pop
+  set PC, pop
+
+; screenline
+; sets B to the cursor position for line A.
+:screenline
+  set b, a
+  mul b, 32
+  set PC, pop
+
+
+; printstr
+; prints a null terminated string to the
+; screen starting at B.
+; based off of Notch's screen output code
+; how to use:
+; set a, msg
+; set b, 0
+; JSR printstr
+; :msg dat "message", 0
+:printstr
+  set push, a
+  set push, b
+  set push, c
+  set push, i
+  set push, j
+  set c, a
+  set i, 0
+  set j, b
+  set b, 0xf100
+:printstr_nextchar
+  set push, c
+  add c, i
+  set a, [c]
+  set c, pop
+  ife a, 0
+    set PC, printstr_done
+  ifg a, 0xff
+    set PC, printstr_setcolor
+  bor a, b
+  set [0x8000+j], a
+  add i, 1
+  add j, 1
+  set PC, printstr_nextchar
+:printstr_setcolor
+  set b, a
+  and b, 0xff
+  shl b, 8
+  ifg a, 0x1ff
+    add b, 0x80
+  add i, 1
+  set PC, printstr_nextchar
+:printstr_done
+  set j, pop
+  set i, pop
+  set c, pop
+  set b, pop
+  set a, pop
+  set PC, pop
+
+; ========
+; = DATA =
+; ========
+
+; user input
+:inputstr
+  dat "                              ", 0
+:inputstrptr
+  dat 0
+:inputpos
+  dat 0
+:inputline
+  dat 2
+
+; messages
+:msg_boot
+  dat 0x170, "Booting...                      ", 0
+:msg_line
+  dat 0x170, "                                ", 0
+:msg_prompt
+  dat 0x170, "$>", 0
+:msg_blink
+  dat 0xe70, "_", 0
+:msg_maxline
+  dat 0x170, "Input cannot exceed 1 line", 0
+:msg_help
+  dat 0x170, "Commands: help, list, run", 0
+:msg_ok
+  dat 0x170, "OK", 0
+; used for input
+:msg_space
+  dat " ", 0
+
+:msg_cmd_help
+  dat "help", 0
+:msg_cmd_run
+  dat "run", 0
+:msg_cmd_list
+  dat "list", 0
+
+; programs
+; 16 possible programs
+; in the format "abcdef", 0, programLocation
+; where abcdef is the 6-letter program name
+; that can be shorter if padded with 0's at the
+; end to a length of 6, and programLocation is
+; the spot to set PC to.
+:programs
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+  dat "      ", 0, 0
+
+:programsnamed
+  dat 0
+
+; ============
+; = PROGRAMS =
+; ============
+
+; Format of a program
+; example:
+; :prog_myprogram
+; :dat 0xffab, 0xcdff ; identifier
+; ; program name must be no more than 6 letters
+; ; and must have padded 0s to make it 6 letters
+; :dat "halt", 0, 0 ; program name
+;
+; ; program contents
+; set PC, halt ; halts the computer.
+;
+; ; any program data MUST be after the
+; ; first instruction in the program
+;
+; ; return to OS
+; set PC, os_loop
+
+
+:progs ; the spot where we start searching
+  dat 0
+
+:prog_echo
+  dat 0xffab, 0xcdff ; identifier
+  ; program name must be no more than 6 letters
+  ; and must have padded 0s to make it 6 letters
+  dat "echo", 0, 0 ; program name
+
+  jsr input
+  set a, inputstr
+  jsr println
+
+  ; any program data MUST be after the
+  ; first instruction in the program
+
+  ; return to OS
+  set PC, os_loop
+
+:endprogs
+  dat 0
