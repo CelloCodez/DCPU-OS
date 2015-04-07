@@ -14,6 +14,7 @@ https://github.com/SirCmpwn/organic
 How to use this os (Windows):
 
 Enter this into the command line:
+
 organic os.asm
 
 Then run lettuce, selecting os.bin as the file, with the devices LEM1802, Generic Keyboard, and M35FD. After accepting the settings, lettuce will start and a screen should be shown. Hit F5 on the main lettuce window to start the OS. Have fun!
