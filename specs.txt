@@ -1,0 +1,21 @@
+OS Function Specifications:
+
+JSR ...
+where ... is the function name.
+
+Functions:
+
+puts
+
+Same as putc, but instead of register A being the
+character, register A is the location in memory of
+a zero-terminated string to print to the screen. It
+will print all the letters, one after another. All
+other registers (B,C,X) still apply as in putc.
+
+putc
+
+Puts a character, register A, to the screen at a video
+memory offset of register C, with a color of register B
+(0xF100 is default white text) and blinks the text if
+register X is 1.
