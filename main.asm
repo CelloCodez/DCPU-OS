@@ -20,7 +20,7 @@ HWI [hw_lem1802]
 
 ; set the border color
 SET A, 3
-SET B, 1
+SET B, 0
 HWI [hw_lem1802]
 
 ; output the boot message
